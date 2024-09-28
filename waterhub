@@ -1,198 +1,80 @@
--- Create the ScreenGui
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "WaterHubGUI"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+from flask import Flask, request, jsonify
+import re
+import requests
+import time
 
--- Create the main Frame to hold the controls
-local frame = Instance.new("Frame")
-frame.Name = "WaterHubFrame"
-frame.Size = UDim2.new(0.2, 0, 0.6, 0) -- Smaller size
-frame.Position = UDim2.new(0.8, 0, 0.2, 0) -- Adjusted position
-frame.BackgroundTransparency = 0.5
-frame.BackgroundColor3 = Color3.fromRGB(0, 0, 255) -- Changed to blue
-frame.BorderSizePixel = 0
-frame.Parent = screenGui
+app = Flask(__name__)
 
--- Title Label
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Name = "TitleLabel"
-titleLabel.Size = UDim2.new(1, 0, 0.1, 0)
-titleLabel.Position = UDim2.new(0, 0, 0, 0)
-titleLabel.BackgroundTransparency = 1
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextScaled = true
-titleLabel.Text = "Water Hub"
-titleLabel.Parent = frame
+key_regex = r'let content = \("([^"]+)"\);'
 
--- Function to create a button
-local function createButton(name, positionY, newValue, property)
-    local buttonFrame = Instance.new("Frame")
-    buttonFrame.Name = name .. "Frame"
-    buttonFrame.Size = UDim2.new(1, 0, 0.1, 0)
-    buttonFrame.Position = UDim2.new(0, 0, positionY, 0)
-    buttonFrame.BackgroundTransparency = 1
-    buttonFrame.Parent = frame
+def fetch(url, headers):
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+        return response.text
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Failed to fetch URL: {url}. Error: {e}")
 
-    local button = Instance.new("TextButton")
-    button.Name = name .. "Button"
-    button.Size = UDim2.new(1, 0, 1, 0)
-    button.Position = UDim2.new(0, 0, 0, 0)
-    button.BackgroundTransparency = 0.5
-    button.BackgroundColor3 = Color3.fromRGB(0, 0, 139) -- Darker blue
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Font = Enum.Font.SourceSans
-    button.TextScaled = true
-    button.Text = name
-    button.Parent = buttonFrame
+def bypass_link(url):
+    try:
+        hwid = url.split("HWID=")[-1]
+        if not hwid:
+            raise Exception("Invalid HWID in URL")
 
-    button.MouseButton1Click:Connect(function()
-        -- Get the player's humanoid
-        local player = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if player and (property == "WalkSpeed" or property == "JumpPower") then
-            player[property] = newValue
-        end
-    end)
-end
+        start_time = time.time()
+        endpoints = [
+            {
+                "url": f"https://flux.li/android/external/start.php?HWID={hwid}",
+                "referer": ""
+            },
+            {
+                "url": "https://flux.li/android/external/check1.php?hash={hash}",
+                "referer": "https://linkvertise.com"
+            },
+            {
+                "url": "https://flux.li/android/external/main.php?hash={hash}",
+                "referer": "https://linkvertise.com"
+            }
+        ]
 
--- Function to enable flying on mobile
-local flying = false
-local function enableFly()
-    local character = game.Players.LocalPlayer.Character
-    if not character or not character:FindFirstChild("Humanoid") then return end
+        for endpoint in endpoints:
+            url = endpoint["url"]
+            referer = endpoint["referer"]
+            headers = {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'DNT': '1',
+                'Connection': 'close',
+                'Referer': referer,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x66) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'
+            }
+            response_text = fetch(url, headers)
+            if endpoint == endpoints[-1]:
+                match = re.search(key_regex, response_text)
+                if match:
+                    end_time = time.time()
+                    time_taken = end_time - start_time
+                    return match.group(1), time_taken
+                else:
+                    raise Exception("Failed to find content key")
+    except Exception as e:
+        raise Exception(f"Failed to bypass link. Error: {e}")
 
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if not humanoidRootPart then return end
+@app.route("/")
+def home():
+    return jsonify({"message": "Invalid Endpoint"})
 
-    local bodyVelocity = Instance.new("BodyVelocity")
-    bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-    bodyVelocity.MaxForce = Vector3.new(4000, 4000, 4000)
-    bodyVelocity.Parent = humanoidRootPart
+@app.route("/api/fluxus")
+def bypass():
+    url = request.args.get("url")
+    if url.startswith("https://flux.li/android/external/start.php?HWID="):
+        try:
+            content, time_taken = bypass_link(url)
+            return jsonify({"key": content, "time_taken": time_taken, "credit": "FeliciaXxx"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"message": "Please Enter Fluxus Link!"})
 
-    local userInputService = game:GetService("UserInputService")
-    flying = true
-
-    local function updateFly()
-        if flying then
-            -- Handle mobile controls
-            userInputService.InputChanged:Connect(function(input)
-                if input.UserInputType == Enum.UserInputType.Touch then
-                    local touchPosition = input.Position
-                    local camera = game.Workspace.CurrentCamera
-                    local characterPosition = camera.CFrame.p
-                    local direction = (touchPosition - UDim2.new(0, camera.ViewportSize.X / 2, 0, camera.ViewportSize.Y / 2)).Unit
-                    local cameraDirection = (camera.CFrame.LookVector * direction.Y) + (camera.CFrame.RightVector * direction.X)
-                    bodyVelocity.Velocity = cameraDirection * 25 -- Adjust speed here
-                end
-            end)
-        end
-    end
-
-    updateFly()
-
-    -- Ensure the flying mode is active
-    while flying do
-        wait()
-    end
-
-    -- Clean up
-    bodyVelocity:Destroy()
-end
-
--- Function to disable flying
-local function disableFly()
-    flying = false
-end
-
--- Create a TextBox for WalkSpeed input
-local walkSpeedInput = Instance.new("TextBox")
-walkSpeedInput.Name = "WalkSpeedInput"
-walkSpeedInput.Size = UDim2.new(1, 0, 0.1, 0)
-walkSpeedInput.Position = UDim2.new(0, 0, 0.4, 0) -- Adjusted position
-walkSpeedInput.BackgroundTransparency = 0.5
-walkSpeedInput.BackgroundColor3 = Color3.fromRGB(0, 0, 139) -- Darker blue
-walkSpeedInput.TextColor3 = Color3.fromRGB(255, 255, 255)
-walkSpeedInput.Font = Enum.Font.SourceSans
-walkSpeedInput.TextScaled = true
-walkSpeedInput.PlaceholderText = "Enter WalkSpeed (1-100)"
-walkSpeedInput.Parent = frame
-
--- Create an "Apply WalkSpeed" button
-local applyWalkSpeedButton = Instance.new("TextButton")
-applyWalkSpeedButton.Name = "ApplyWalkSpeedButton"
-applyWalkSpeedButton.Size = UDim2.new(1, 0, 0.1, 0)
-applyWalkSpeedButton.Position = UDim2.new(0, 0, 0.5, 0) -- Adjusted position
-applyWalkSpeedButton.BackgroundTransparency = 0.5
-applyWalkSpeedButton.BackgroundColor3 = Color3.fromRGB(0, 139, 0) -- Dark green
-applyWalkSpeedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-applyWalkSpeedButton.Font = Enum.Font.SourceSans
-applyWalkSpeedButton.TextScaled = true
-applyWalkSpeedButton.Text = "Apply WalkSpeed"
-applyWalkSpeedButton.Parent = frame
-
-applyWalkSpeedButton.MouseButton1Click:Connect(function()
-    local inputValue = tonumber(walkSpeedInput.Text)
-    if inputValue and inputValue >= 1 and inputValue <= 100 then
-        local player = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        if player then
-            player.WalkSpeed = inputValue
-        end
-    else
-        -- Handle invalid input (e.g., show a warning message)
-        print("Invalid WalkSpeed. Please enter a value between 1 and 100.")
-    end
-end)
-
--- Create an ESP toggle button
-local espEnabled = false
-local function toggleESP()
-    espEnabled = not espEnabled
-    for _, player in pairs(game.Players:GetPlayers()) do
-        if player ~= game.Players.LocalPlayer then
-            local character = player.Character
-            if character then
-                local highlight = character:FindFirstChild("Highlight")
-                if espEnabled then
-                    if not highlight then
-                        highlight = Instance.new("Highlight")
-                        highlight.Name = "Highlight"
-                        highlight.Parent = character
-                    end
-                    highlight.Adornee = character
-                    highlight.FillColor = Color3.new(1, 0, 0) -- Red highlight
-                    highlight.OutlineColor = Color3.new(1, 1, 1) -- White outline
-                    highlight.FillTransparency = 0.5
-                    highlight.OutlineTransparency = 0.5
-                else
-                    if highlight then
-                        highlight:Destroy()
-                    end
-                end
-            end
-        end
-    end
-end
-
--- Create the "ESP People On/Off" button
-local espButton = Instance.new("TextButton")
-espButton.Name = "ESPButton"
-espButton.Size = UDim2.new(1, 0, 0.1, 0)
-espButton.Position = UDim2.new(0, 0, 0.6, 0) -- Adjusted position
-espButton.BackgroundTransparency = 0.5
-espButton.BackgroundColor3 = Color3.fromRGB(0, 139, 139) -- Teal
-espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-espButton.Font = Enum.Font.SourceSans
-espButton.TextScaled = true
-espButton.Text = "ESP People On/Off"
-espButton.Parent = frame
-
-espButton.MouseButton1Click:Connect(toggleESP)
-
--- Create the drag handle (a small frame at the top of the GUI)
-local dragHandle = Instance.new("Frame")
-dragHandle.Name = "DragHandle"
-dragHandle.Size = UDim2.new(1, 0, 0.1, 0)
-dragHandle.Position = UDim2.new(0, 0, 0, 0)
-dragHandle.BackgroundTransparency = 1
-dragHandle.Parent = frame
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=8080)
